@@ -17,10 +17,12 @@
 #     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import serial, time
+import serial, time, re
 
+from typing import Any
 from langchain import OpenAI, PromptTemplate, LLMChain
 from langchain.chat_models import ChatOpenAI
+from langchain.prompts import StringPromptTemplate
 
 
 template = """
@@ -67,7 +69,15 @@ To turn the hallway light on: <L,H,1>
 To turn the kitchen fan off: <F,K,0>
 To set the HVAC to 85 degrees <A,85>
 
-Be sure to include the formatted command string in your response and do not include any < or > symbols anywhere else in the response.  
+Be sure to include only formatted command strings in your response
+If you need to send more than one command then each command must be fully formatted in its own set of < and >.
+For example to turn off the lights in both the kitchen and bathroom:  <L,K,0><L,B,0>
+
+Here is some current sensor data that you can use if you need it. 
+[
+Current Temperature {current_temp}
+Current HVAC Setting {hvac_setting}
+]
 
 Begin!
 
@@ -75,6 +85,28 @@ Human Input:
 {input}
 
 """
+
+class ArduGPTPromptTemplate(StringPromptTemplate):
+    template: str
+    device: Any    
+    
+    def format(self, **kwargs) -> str:
+        ###  We will get data from the Arduino to use in place of {placeholders} in the prompt
+        if self.device is not None:
+            ### code to request temperature
+            self.device.write(bytes('<R>', 'utf-8'))
+            time.sleep(0.1) ### just for demo code
+            tempResponse = self.device.readline()     
+            ###  Arduino sends back <T,xxx,yyy> where xxx is current temp and yyy is hvac setting       
+            match = re.match(br"<T,(\d{1,3}),(\d{1,3})>", tempResponse)
+            if match:
+                kwargs["current_temp"] = match.group(1).decode('utf-8')
+                kwargs["hvac_setting"] = match.group(2).decode('utf-8')
+            else:
+                kwargs["current_temp"] = "Unknown"
+                kwargs["hvac_setting"] = "Unknown"               
+        return self.template.format(**kwargs)
+
 
 
 class ArduGPT:
@@ -88,12 +120,13 @@ class ArduGPT:
             temperature=0
             )
 
-        prompt = PromptTemplate(
+        prompt = ArduGPTPromptTemplate(
             input_variables=["input"],
             template=template,
+            device=self.device,
             )   
         
-        self.llm_chain = LLMChain(llm=llm, prompt=prompt)
+        self.llm_chain = LLMChain(llm=llm, prompt=prompt, verbose=True)
         
         return
     
@@ -115,7 +148,9 @@ class ArduGPT:
                 time.sleep(0.1)  ## sleep while we wait for response
                 returned = self.device.readline()
                 print("\n*******************************\n\nArduino:  ")
-                print(returned)
+                while returned != b'':
+                    print(returned)
+                    returned = self.device.readline()
             
         
         return 
@@ -136,7 +171,7 @@ class ArduGPT:
             self.getUserInput()   
         return 
     
-arduino = serial.Serial(port='/dev/ttyACM0', baudrate=115200, timeout=0.1)
+arduino = serial.Serial(port='/dev/ttyACM1', baudrate=115200, timeout=0.1)
     
 
 ard = ArduGPT(arduino)

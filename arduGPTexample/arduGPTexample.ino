@@ -11,6 +11,8 @@ char c;
 char buffer[BUFFER_SIZE];
 int index;
 
+int hvacSetting = 68;
+
 void loop() {
   
   if(Serial.available()){
@@ -70,6 +72,15 @@ void processBuffer(char* buffer){
       int temp = strtol(buffer+3, NULL, 10);
       Serial.print("Setting HVAC to ");
       Serial.println(temp);
+      hvacSetting = temp;
+    }
+    else if(command == 'R'){
+      int fakeTemperature = 75;
+      Serial.print("<T,");
+      Serial.print(fakeTemperature);
+      Serial.print(',');
+      Serial.print(hvacSetting);
+      Serial.println(">");
     }
     else {
       Serial.println("Unknown Command");
